@@ -1,0 +1,140 @@
+"use client";
+
+import React, { useState, useEffect } from "react";
+import { useVoting } from "@/context/VotingContext";
+import { useRouter } from "next/navigation";
+import { ChevronLeft, Loader2, ShieldCheck } from "lucide-react";
+import { collection, addDoc, serverTimestamp } from "firebase/firestore";
+import { db } from "@/lib/firebase";
+import { motion } from "framer-motion";
+
+function generateHash() {
+  return "VOTE-" + Math.random().toString(16).substring(2, 8).toUpperCase();
+}
+
+export default function ConfirmPage() {
+  const { state, submitVote } = useVoting();
+  const router = useRouter();
+  const [submitting, setSubmitting] = useState(false);
+  const [error, setError] = useState("");
+
+  useEffect(() => {
+    if (state.hasVoted) {
+      router.replace("/success");
+    } else if (state.selectedCandidates.length !== 3) {
+      router.replace("/vote");
+    }
+  }, [state.selectedCandidates.length, state.hasVoted, router]);
+
+  if (state.selectedCandidates.length !== 3) return null;
+
+  const handleSubmit = async () => {
+    setSubmitting(true);
+    setError("");
+    
+    try {
+      const voteReference = generateHash();
+      // Generate a simple UUID for voter token
+      const voterClientToken = crypto.randomUUID ? crypto.randomUUID() : Math.random().toString(36).substring(2);
+      
+      const selections = state.selectedCandidates.map(c => ({
+        candidateId: c.id,
+        candidateNickname: c.nickname,
+        department: c.department,
+        reason: state.impressions[c.id] || ""
+      }));
+
+      await addDoc(collection(db, "votes"), {
+        votedAt: serverTimestamp(),
+        voteReference,
+        voterClientToken,
+        selections
+      });
+
+      // Save ref to session to show in success page
+      sessionStorage.setItem("voteReference", voteReference);
+      
+      // Update global context (sets localstorage and clears draft)
+      submitVote();
+      
+      // router pushes via useEffect but we can push explicitly
+      router.push("/success");
+      
+    } catch (err: any) {
+      console.error(err);
+      setError("Failed to submit vote. Please try again.");
+      setSubmitting(false);
+    }
+  };
+
+  return (
+    <div className="pb-36 pt-8 px-4 flex flex-col h-full relative">
+      <div className="flex items-center gap-2 mb-6">
+        <button 
+          onClick={() => router.back()} 
+          disabled={submitting}
+          className="p-2 -ml-2 hover:bg-slate-200 rounded-full transition-colors text-slate-600 disabled:opacity-50"
+        >
+          <ChevronLeft className="w-6 h-6" />
+        </button>
+        <div>
+          <h1 className="text-2xl font-bold text-slate-800 tracking-tight">Review Vote</h1>
+          <p className="text-sm text-slate-500 mt-1">Please confirm your selections</p>
+        </div>
+      </div>
+
+      <div className="flex flex-col gap-4">
+        {state.selectedCandidates.map((c, i) => (
+          <motion.div 
+            initial={{ opacity: 0, x: -20 }}
+            animate={{ opacity: 1, x: 0 }}
+            transition={{ delay: i * 0.1 }}
+            key={c.id} 
+            className="bg-white rounded-2xl p-4 shadow-sm border border-slate-100 flex flex-col gap-3"
+          >
+            <div className="flex items-center gap-3">
+              <div className={`w-10 h-10 shrink-0 rounded-full flex items-center justify-center text-lg font-bold text-white shadow-inner bg-gradient-to-br ${c.avatarGradient}`}>
+                {c.nickname.match(/[ก-ฮ]/)?.[0] || c.nickname.charAt(0)}
+              </div>
+              <div>
+                <h3 className="font-semibold text-slate-800">{c.nickname}</h3>
+                <p className="text-xs text-slate-400">{c.department}</p>
+              </div>
+            </div>
+            <div className="bg-slate-50 rounded-lg p-3 text-sm text-slate-600 italic border border-slate-100">
+              "{state.impressions[c.id]}"
+            </div>
+          </motion.div>
+        ))}
+      </div>
+
+      {error && (
+        <div className="mt-6 p-4 bg-rose-50 text-rose-600 rounded-xl text-sm border border-rose-100 text-center">
+          {error}
+        </div>
+      )}
+
+      {/* Sticky Bottom Bar */}
+      <div className="fixed bottom-0 left-1/2 -translate-x-1/2 w-full max-w-md p-4 pb-8 glass rounded-t-3xl z-50 flex flex-col gap-3">
+        <div className="flex items-center justify-center gap-2 text-xs text-slate-500">
+          <ShieldCheck className="w-4 h-4 text-emerald-500" />
+          Votes are submitted anonymously
+        </div>
+        <button
+          onClick={handleSubmit}
+          disabled={submitting}
+          className="w-full py-3.5 rounded-full font-bold text-white bg-indigo-600 shadow-lg shadow-indigo-300 hover:bg-indigo-700 active:scale-[0.98] transition-all flex justify-center items-center gap-2 disabled:opacity-70 disabled:active:scale-100"
+        >
+          {submitting ? (
+            <>
+              <Loader2 className="w-5 h-5 animate-spin" />
+              Submitting...
+            </>
+          ) : (
+            "Submit Final Vote"
+          )}
+        </button>
+      </div>
+    </div>
+  );
+}
