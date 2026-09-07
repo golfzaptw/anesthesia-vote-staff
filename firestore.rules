@@ -1,0 +1,85 @@
+rules_version = '2';
+service cloud.firestore {
+  match /databases/{database}/documents {
+
+    // ฟังก์ชันเช็คว่าเป็น Admin หรือไม่ (อ้างอิงจากอีเมลที่ตั้งไว้)
+    function isAdmin() {
+      return request.auth != null && (request.auth.token.email == "super.admin@pmk.com" || request.auth.token.email == "admin.anes@pmk.com");
+    }
+
+    function isOwner(userId) {
+      return request.auth != null && request.auth.uid == userId;
+    }
+
+    // สำหรับ Collection: users (ข้อมูลโปรไฟล์ผู้ใช้)
+    match /users/{userId} {
+      allow read: if request.auth != null && (request.auth.uid == userId || isAdmin());
+      allow write: if request.auth != null && request.auth.uid == userId;
+      allow delete: if request.auth != null && (request.auth.uid == userId || isAdmin());
+    }
+
+    // สำหรับ Collection: evaluator_names (ตรวจสอบชื่อซ้ำและจัดการชื่อผู้ประเมิน)
+    match /evaluator_names/{nameSlug} {
+      allow read: if true;
+      allow write: if request.auth != null;
+      allow delete: if isAdmin();
+    }
+
+    // สำหรับ Collection: form_submissions (คำตอบแบบประเมิน)
+    // Document ID = {userId}_{formId}_{batchId}
+    match /form_submissions/{submissionId} {
+
+      // เจ้าของดูจาก doc ID ได้ ทำให้ get เอกสารที่ "ยังไม่มี" ไม่ถูกปฏิเสธ
+      function ownsDocId() {
+        return request.auth != null && submissionId.split('_')[0] == request.auth.uid;
+      }
+
+      allow get: if isAdmin()
+                 || ownsDocId()
+                 || (resource != null && isOwner(resource.data.userId));
+
+      // query ทั้ง collection (หน้า admin / migration / ลบผู้ใช้)
+      allow list: if isAdmin();
+
+      // ส่งครั้งแรกต้องเป็น editCount = 0 เสมอ / admin สร้างได้เพื่อทำ migration
+      allow create: if isAdmin()
+                    || (isOwner(request.resource.data.userId)
+                        && request.resource.data.editCount == 0);
+
+      // แก้ไขได้ครั้งเดียวเท่านั้น: editCount ต้องเปลี่ยนจาก 0 → 1 และเปลี่ยนเจ้าของไม่ได้
+      allow update: if isAdmin()
+                    || (isOwner(resource.data.userId)
+                        && request.resource.data.userId == resource.data.userId
+                        && resource.data.get('editCount', 0) == 0
+                        && request.resource.data.editCount == 1);
+
+      allow delete: if isAdmin();
+    }
+
+    // สำหรับ Collection: config (ตั้งค่าแบบประเมินและเวลาเปิด-ปิด)
+    match /config/{document=**} {
+      allow read: if true;
+      allow write: if isAdmin();
+    }
+
+    // ==========================================
+    // กฎสำหรับแอพ Staff Vote (ทำงานร่วมกับโปรเจกต์เดิม)
+    // ==========================================
+
+    // สำหรับ Collection: candidates (รายชื่อบุคลากร)
+    match /candidates/{candidateId} {
+      allow read: if true; // ให้ทุกคนสามารถโหลดรายชื่อบุคลากรไปแสดงตอนโหวตได้
+      
+      // ให้แอดมินแก้ไขได้เท่านั้น 
+      // *หมายเหตุ: หากคุณใช้ /api/seed เพื่อเพิ่มข้อมูลครั้งแรก และไม่ได้ล็อกอิน 
+      // ให้เปลี่ยนบรรทัดล่างเป็น `allow write: if true;` ชั่วคราว พอกด seed เสร็จค่อยแก้กลับ
+      allow write: if isAdmin();
+    }
+
+    // สำหรับ Collection: votes (ข้อมูลการโหวต)
+    match /votes/{voteId} {
+      allow create: if true; // ให้ทุกคนส่งโหวตได้ (Anonymous voting)
+      allow read, update, delete: if isAdmin(); // เฉพาะแอดมินที่ดึงข้อมูลผลโหวตไปดูที่ Dashboard ได้
+    }
+  }
+}
