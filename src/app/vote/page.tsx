@@ -118,7 +118,17 @@ export default function VotePage() {
                 animate={{ opacity: 1, scale: 1 }}
                 exit={{ opacity: 0, scale: 0.9 }}
                 key={c.id}
-                onClick={() => !isDisabled && toggleCandidate(c)}
+                onClick={() => {
+                  if (!isDisabled) {
+                    toggleCandidate(c);
+                    if (!isSelected && search !== "") {
+                      setTimeout(() => {
+                        setSearch("");
+                        window.scrollTo({ top: 0, behavior: "smooth" });
+                      }, 300);
+                    }
+                  }
+                }}
                 className={`relative overflow-hidden rounded-2xl p-4 transition-all duration-300 cursor-pointer ${
                   isSelected 
                     ? "bg-indigo-50 border-2 border-indigo-500 shadow-md scale-[1.02]" 
