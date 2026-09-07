@@ -40,8 +40,33 @@ export default function SuccessPage() {
     if (!cardRef.current) return;
     try {
       const dataUrl = await htmlToImage.toPng(cardRef.current, { quality: 1, pixelRatio: 3 });
+      const fileName = `Vote-Proof-${refHash}.png`;
+
+      // แปลง Data URL เป็น Blob
+      const res = await fetch(dataUrl);
+      const blob = await res.blob();
+      const file = new File([blob], fileName, { type: "image/png" });
+
+      // เช็คว่า Browser รองรับ Web Share API สำหรับไฟล์รูปหรือไม่ (ส่วนใหญ่บนมือถือจะรองรับ)
+      if (navigator.canShare && navigator.canShare({ files: [file] })) {
+        try {
+          await navigator.share({
+            files: [file],
+            title: 'Vote Receipt',
+          });
+          return; // หากแชร์สำเร็จหรือกดบันทึกลงเครื่องสำเร็จจบการทำงานเลย
+        } catch (shareError) {
+          console.error("Share failed", shareError);
+          // ถ้ายกเลิกการแชร์ (AbortError) ไม่ต้อง fallback ไปโหลดไฟล์
+          if ((shareError as Error).name === "AbortError") {
+            return;
+          }
+        }
+      }
+
+      // สำหรับ Desktop หรือ Browser ที่ไม่รองรับ Share API
       const link = document.createElement('a');
-      link.download = `Vote-Proof-${refHash}.png`;
+      link.download = fileName;
       link.href = dataUrl;
       link.click();
     } catch (err) {
