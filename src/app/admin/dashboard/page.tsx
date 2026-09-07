@@ -3,10 +3,29 @@
 import React, { useEffect, useState, useMemo } from "react";
 import { useRouter } from "next/navigation";
 import { onAuthStateChanged, signOut } from "firebase/auth";
-import { collection, getDocs, doc, updateDoc } from "firebase/firestore";
+import * as XLSX from "xlsx";
+import { collection, getDocs, doc, updateDoc, writeBatch } from "firebase/firestore";
 import { auth, db } from "@/lib/firebase";
-import { Loader2, LogOut, MessageSquareText, Trophy, Users, X, Edit2, Search } from "lucide-react";
+import { Loader2, LogOut, MessageSquareText, Trophy, Users, X, Edit2, Search, UploadCloud, FileSpreadsheet } from "lucide-react";
 import { motion, AnimatePresence } from "framer-motion";
+
+const gradients = [
+  { bg: 'bg-rose-100', text: 'text-rose-600' },
+  { bg: 'bg-pink-100', text: 'text-pink-600' },
+  { bg: 'bg-fuchsia-100', text: 'text-fuchsia-600' },
+  { bg: 'bg-purple-100', text: 'text-purple-600' },
+  { bg: 'bg-violet-100', text: 'text-violet-600' },
+  { bg: 'bg-indigo-100', text: 'text-indigo-600' },
+  { bg: 'bg-blue-100', text: 'text-blue-600' },
+  { bg: 'bg-sky-100', text: 'text-sky-600' },
+  { bg: 'bg-cyan-100', text: 'text-cyan-600' },
+  { bg: 'bg-teal-100', text: 'text-teal-600' },
+  { bg: 'bg-emerald-100', text: 'text-emerald-600' },
+  { bg: 'bg-amber-100', text: 'text-amber-600' },
+  { bg: 'bg-orange-100', text: 'text-orange-600' },
+];
+
+const getRandomGradient = () => gradients[Math.floor(Math.random() * gradients.length)];
 
 interface VoteSelection {
   candidateId: string;
@@ -43,6 +62,10 @@ export default function AdminDashboardPage() {
   const [searchQuery, setSearchQuery] = useState("");
   const [editingCandidate, setEditingCandidate] = useState<CandidateDoc | null>(null);
   const [savingCandidate, setSavingCandidate] = useState(false);
+  const [uploadingStaff, setUploadingStaff] = useState(false);
+  const [showUploadGuide, setShowUploadGuide] = useState(false);
+  const [uploadPreview, setUploadPreview] = useState<any[] | null>(null);
+  const fileInputRef = React.useRef<HTMLInputElement>(null);
   const [loading, setLoading] = useState(true);
   const [selectedStaff, setSelectedStaff] = useState<LeaderboardEntry | null>(null);
   const router = useRouter();
@@ -107,6 +130,74 @@ export default function AdminDashboardPage() {
       alert("Failed to update. Check console.");
     } finally {
       setSavingCandidate(false);
+    }
+  };
+
+  const handleFileUpload = (e: React.ChangeEvent<HTMLInputElement>) => {
+    const file = e.target.files?.[0];
+    if (!file) return;
+
+    const reader = new FileReader();
+    reader.onload = (event) => {
+      try {
+        const data = new Uint8Array(event.target?.result as ArrayBuffer);
+        const workbook = XLSX.read(data, { type: 'array' });
+        const firstSheet = workbook.Sheets[workbook.SheetNames[0]];
+        const jsonData = XLSX.utils.sheet_to_json(firstSheet);
+        
+        if (jsonData.length > 0 && !('Nickname' in (jsonData[0] as object))) {
+          alert("Invalid file format. Please ensure the header row includes 'Nickname', 'FullName', and 'Department'.");
+          return;
+        }
+
+        setUploadPreview(jsonData);
+        setShowUploadGuide(false);
+      } catch (err) {
+        console.error(err);
+        alert("Error parsing file.");
+      }
+    };
+    reader.readAsArrayBuffer(file);
+    if (fileInputRef.current) fileInputRef.current.value = "";
+  };
+
+  const handleConfirmUpload = async () => {
+    if (!uploadPreview) return;
+    setUploadingStaff(true);
+    try {
+      const batch = writeBatch(db);
+      
+      // Delete old candidates
+      candidates.forEach(c => {
+        batch.delete(doc(db, "candidates", c.id));
+      });
+
+      // Insert new candidates
+      const newCandidates: CandidateDoc[] = [];
+      uploadPreview.forEach((row: any) => {
+        if (!row.Nickname) return;
+        const docRef = doc(collection(db, "candidates"));
+        const color = getRandomGradient();
+        const newCandidate = {
+          nickname: row.Nickname?.toString() || "",
+          fullName: row.FullName?.toString() || "",
+          department: row.Department?.toString() || "",
+          bgColor: color.bg,
+          textColor: color.text,
+        };
+        batch.set(docRef, newCandidate);
+        newCandidates.push({ id: docRef.id, ...newCandidate });
+      });
+
+      await batch.commit();
+      setCandidates(newCandidates);
+      setUploadPreview(null);
+      alert("Staff list replaced successfully!");
+    } catch (err) {
+      console.error(err);
+      alert("Error saving to database.");
+    } finally {
+      setUploadingStaff(false);
     }
   };
 
@@ -290,17 +381,33 @@ export default function AdminDashboardPage() {
         ) : (
           <>
             {/* Manage Staff View */}
-            <div className="mb-6 relative">
-              <div className="absolute inset-y-0 left-4 flex items-center pointer-events-none text-slate-400">
-                <Search className="w-5 h-5" />
+            <div className="flex flex-col md:flex-row gap-4 mb-6">
+              <div className="relative flex-1">
+                <div className="absolute inset-y-0 left-4 flex items-center pointer-events-none text-slate-400">
+                  <Search className="w-5 h-5" />
+                </div>
+                <input
+                  type="text"
+                  value={searchQuery}
+                  onChange={(e) => setSearchQuery(e.target.value)}
+                  placeholder="Search staff by name or department..."
+                  className="w-full pl-12 pr-4 py-3 bg-white border border-slate-200 rounded-xl focus:outline-none focus:ring-2 focus:ring-indigo-500/20 text-slate-800"
+                />
               </div>
-              <input
-                type="text"
-                value={searchQuery}
-                onChange={(e) => setSearchQuery(e.target.value)}
-                placeholder="Search staff by name or department..."
-                className="w-full pl-12 pr-4 py-3 bg-white border border-slate-200 rounded-xl focus:outline-none focus:ring-2 focus:ring-indigo-500/20 text-slate-800"
+              <input 
+                type="file" 
+                accept=".csv, application/vnd.openxmlformats-officedocument.spreadsheetml.sheet, application/vnd.ms-excel" 
+                className="hidden" 
+                ref={fileInputRef}
+                onChange={handleFileUpload}
               />
+              <button 
+                onClick={() => setShowUploadGuide(true)}
+                className="flex items-center justify-center gap-2 px-6 py-3 bg-indigo-600 text-white rounded-xl font-bold shadow-sm hover:bg-indigo-700 transition-colors shrink-0"
+              >
+                <UploadCloud className="w-5 h-5" />
+                Import Data
+              </button>
             </div>
             
             <div className="bg-white rounded-2xl shadow-sm border border-slate-100 overflow-hidden">
@@ -423,6 +530,115 @@ export default function AdminDashboardPage() {
                     No impressions written for this candidate.
                   </div>
                 )}
+              </div>
+            </motion.div>
+          </>
+        )}
+      </AnimatePresence>
+
+      {/* Upload Confirm Modal */}
+      <AnimatePresence>
+        {uploadPreview && (
+          <>
+            <motion.div 
+              initial={{ opacity: 0 }} animate={{ opacity: 1 }} exit={{ opacity: 0 }}
+              className="fixed inset-0 bg-slate-900/40 backdrop-blur-sm z-40"
+              onClick={() => !uploadingStaff && setUploadPreview(null)}
+            />
+            <motion.div 
+              initial={{ scale: 0.95, opacity: 0 }} animate={{ scale: 1, opacity: 1 }} exit={{ scale: 0.95, opacity: 0 }}
+              className="fixed top-1/2 left-1/2 -translate-x-1/2 -translate-y-1/2 w-full max-w-md bg-white rounded-3xl shadow-2xl z-50 overflow-hidden"
+            >
+              <div className="p-6 text-center">
+                <div className="w-16 h-16 bg-indigo-100 text-indigo-600 rounded-full flex items-center justify-center mx-auto mb-4">
+                  <FileSpreadsheet className="w-8 h-8" />
+                </div>
+                <h3 className="text-xl font-bold text-slate-800 mb-2">Confirm Import</h3>
+                <p className="text-slate-500 mb-6">
+                  You are about to upload <strong className="text-slate-800">{uploadPreview.length}</strong> staff members. 
+                  <br/><br/>
+                  <span className="text-rose-600 font-semibold text-sm bg-rose-50 px-3 py-2 rounded-lg inline-block">
+                    ⚠️ Warning: This will DELETE all existing candidates and replace them with this new list.
+                  </span>
+                </p>
+                <div className="flex gap-3">
+                  <button 
+                    disabled={uploadingStaff}
+                    onClick={() => setUploadPreview(null)}
+                    className="flex-1 py-3 px-4 bg-slate-100 text-slate-700 rounded-xl font-bold hover:bg-slate-200 transition-colors"
+                  >
+                    Cancel
+                  </button>
+                  <button 
+                    disabled={uploadingStaff}
+                    onClick={handleConfirmUpload}
+                    className="flex-1 py-3 px-4 bg-indigo-600 text-white rounded-xl font-bold hover:bg-indigo-700 transition-colors flex items-center justify-center"
+                  >
+                    {uploadingStaff ? <Loader2 className="w-5 h-5 animate-spin" /> : "Confirm & Replace"}
+                  </button>
+                </div>
+              </div>
+            </motion.div>
+          </>
+        )}
+      </AnimatePresence>
+
+      {/* Upload Guide Modal */}
+      <AnimatePresence>
+        {showUploadGuide && !uploadPreview && (
+          <>
+            <motion.div 
+              initial={{ opacity: 0 }} animate={{ opacity: 1 }} exit={{ opacity: 0 }}
+              className="fixed inset-0 bg-slate-900/40 backdrop-blur-sm z-40"
+              onClick={() => setShowUploadGuide(false)}
+            />
+            <motion.div 
+              initial={{ scale: 0.95, opacity: 0 }} animate={{ scale: 1, opacity: 1 }} exit={{ scale: 0.95, opacity: 0 }}
+              className="fixed top-1/2 left-1/2 -translate-x-1/2 -translate-y-1/2 w-full max-w-lg bg-white rounded-3xl shadow-2xl z-50 overflow-hidden"
+            >
+              <div className="p-6">
+                <div className="flex justify-between items-center mb-6">
+                  <h3 className="text-xl font-bold text-slate-800">Import Staff Data</h3>
+                  <button onClick={() => setShowUploadGuide(false)} className="text-slate-400 hover:text-slate-600">
+                    <X className="w-5 h-5" />
+                  </button>
+                </div>
+                
+                <p className="text-slate-600 mb-4 text-sm leading-relaxed">
+                  Please prepare your Excel (<code className="bg-slate-100 px-1 py-0.5 rounded text-slate-700">.xlsx</code>) or CSV file with the following column headers exactly as shown below:
+                </p>
+
+                <div className="bg-slate-50 border border-slate-200 rounded-xl overflow-hidden mb-6 text-sm">
+                  <table className="w-full text-left border-collapse">
+                    <thead className="bg-slate-100 border-b border-slate-200">
+                      <tr>
+                        <th className="py-3 px-4 font-semibold text-slate-700">Nickname</th>
+                        <th className="py-3 px-4 font-semibold text-slate-700">FullName</th>
+                        <th className="py-3 px-4 font-semibold text-slate-700">Department</th>
+                      </tr>
+                    </thead>
+                    <tbody className="text-slate-600">
+                      <tr className="border-b border-slate-100">
+                        <td className="py-3 px-4 bg-white">พี่บาส</td>
+                        <td className="py-3 px-4 bg-white">นายณัฐดนัย สมทรง</td>
+                        <td className="py-3 px-4 bg-white">Surgery 1</td>
+                      </tr>
+                      <tr>
+                        <td className="py-3 px-4">น้องมิ้น</td>
+                        <td className="py-3 px-4">นางสาวชุติกาญจน์ วันดี</td>
+                        <td className="py-3 px-4">ENT</td>
+                      </tr>
+                    </tbody>
+                  </table>
+                </div>
+
+                <button 
+                  onClick={() => fileInputRef.current?.click()}
+                  className="flex items-center justify-center gap-2 w-full py-4 bg-indigo-600 text-white rounded-xl font-bold shadow-sm hover:bg-indigo-700 transition-colors"
+                >
+                  <UploadCloud className="w-5 h-5" />
+                  Select File to Upload
+                </button>
               </div>
             </motion.div>
           </>

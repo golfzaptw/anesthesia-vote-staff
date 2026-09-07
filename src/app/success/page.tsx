@@ -10,6 +10,7 @@ import { useVoting } from "@/context/VotingContext";
 export default function SuccessPage() {
   const [refHash, setRefHash] = useState<string | null>(null);
   const [dateStr, setDateStr] = useState<string>("");
+  const [showReceipt, setShowReceipt] = useState<boolean>(true);
   const cardRef = useRef<HTMLDivElement>(null);
   const router = useRouter();
   const { state } = useVoting();
@@ -24,13 +25,14 @@ export default function SuccessPage() {
     const hash = sessionStorage.getItem("voteReference");
     if (hash) {
       setRefHash(hash);
+      setShowReceipt(true);
       const now = new Date();
       setDateStr(now.toLocaleDateString("en-GB", {
         day: '2-digit', month: 'short', year: 'numeric',
         hour: '2-digit', minute: '2-digit'
       }));
     } else {
-      setRefHash("VOTE-XXXXXX");
+      setShowReceipt(false);
     }
   }, [state.hasVoted, router]);
 
@@ -73,41 +75,52 @@ export default function SuccessPage() {
           Thank you for participating. Your vote has been recorded anonymously.
         </p>
 
-        {/* Digital Proof Card */}
-        <div className="w-full relative group">
-          <div 
-            ref={cardRef} 
-            className="w-full bg-white rounded-3xl p-8 shadow-sm border border-slate-100 flex flex-col items-center relative overflow-hidden"
-            style={{ background: "linear-gradient(145deg, #ffffff 0%, #f8fafc 100%)" }}
-          >
-            {/* Decorative pattern */}
-            <div className="absolute top-0 right-0 w-32 h-32 bg-indigo-50 rounded-bl-full opacity-50"></div>
-            
-            <div className="text-xs font-bold uppercase tracking-widest text-indigo-400 mb-6">
-              Official Receipt
+        {showReceipt ? (
+          <>
+            {/* Digital Proof Card */}
+            <div className="w-full relative group">
+              <div 
+                ref={cardRef} 
+                className="w-full bg-white rounded-3xl p-8 shadow-sm border border-slate-100 flex flex-col items-center relative overflow-hidden"
+                style={{ background: "linear-gradient(145deg, #ffffff 0%, #f8fafc 100%)" }}
+              >
+                {/* Decorative pattern */}
+                <div className="absolute top-0 right-0 w-32 h-32 bg-indigo-50 rounded-bl-full opacity-50"></div>
+                
+                <div className="text-xs font-bold uppercase tracking-widest text-indigo-400 mb-6">
+                  Official Receipt
+                </div>
+
+                <div className="text-sm text-slate-500 mb-1">Reference Hash</div>
+                <div className="text-2xl font-mono font-bold text-slate-800 tracking-wider mb-6 bg-slate-100 px-4 py-2 rounded-xl">
+                  {refHash ? refHash.replace(/(VOTE-..).*(.)/, "$1***$2") : "VOTE-XXXXXX"}
+                </div>
+
+                <div className="w-full border-t border-dashed border-slate-200 my-2"></div>
+
+                <div className="flex items-center gap-2 text-sm text-slate-500 mt-4 w-full justify-center">
+                  <Calendar className="w-4 h-4" />
+                  {dateStr}
+                </div>
+              </div>
             </div>
 
-            <div className="text-sm text-slate-500 mb-1">Reference Hash</div>
-            <div className="text-2xl font-mono font-bold text-slate-800 tracking-wider mb-6 bg-slate-100 px-4 py-2 rounded-xl">
-              {refHash ? refHash.replace(/(VOTE-..).*(.)/, "$1***$2") : "VOTE-XXXXXX"}
-            </div>
-
-            <div className="w-full border-t border-dashed border-slate-200 my-2"></div>
-
-            <div className="flex items-center gap-2 text-sm text-slate-500 mt-4 w-full justify-center">
-              <Calendar className="w-4 h-4" />
-              {dateStr}
-            </div>
+            <button
+              onClick={handleDownload}
+              className="mt-8 flex items-center justify-center gap-2 w-full py-4 rounded-full font-bold text-white bg-slate-800 shadow-xl shadow-slate-200 hover:bg-slate-900 active:scale-95 transition-all"
+            >
+              <Download className="w-5 h-5" />
+              Save Receipt Image
+            </button>
+          </>
+        ) : (
+          <div className="w-full bg-white p-6 rounded-2xl shadow-sm border border-slate-100 text-center relative overflow-hidden">
+            <div className="absolute top-0 right-0 w-24 h-24 bg-emerald-50 rounded-bl-full opacity-50"></div>
+            <p className="text-slate-600 font-medium relative z-10">
+              You have already voted in this election. You may now close this page.
+            </p>
           </div>
-        </div>
-
-        <button
-          onClick={handleDownload}
-          className="mt-8 flex items-center justify-center gap-2 w-full py-4 rounded-full font-bold text-white bg-slate-800 shadow-xl shadow-slate-200 hover:bg-slate-900 active:scale-95 transition-all"
-        >
-          <Download className="w-5 h-5" />
-          Save Receipt Image
-        </button>
+        )}
       </motion.div>
     </div>
   );
