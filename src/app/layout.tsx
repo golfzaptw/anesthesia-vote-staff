@@ -10,8 +10,8 @@ const kanit = Kanit({
 });
 
 export const metadata: Metadata = {
-  title: "Staff Voting 2026",
-  description: "Mobile-first staff voting application",
+  title: "โหวตสตาฟในดวงใจ ปี 2026",
+  description: "แอพพลิเคชันโหวตสตาฟในดวงใจ",
 };
 
 export default function RootLayout({
@@ -20,7 +20,7 @@ export default function RootLayout({
   children: React.ReactNode;
 }>) {
   return (
-    <html lang="en">
+    <html lang="th">
       <body className={`${kanit.variable} font-sans bg-slate-100 min-h-screen flex justify-center`}>
         <div className="w-full max-w-md min-h-screen bg-slate-50 relative shadow-2xl overflow-x-hidden">
           <VotingProvider>

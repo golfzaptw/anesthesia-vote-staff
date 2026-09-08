@@ -52,7 +52,7 @@ export default function SuccessPage() {
         try {
           await navigator.share({
             files: [file],
-            title: 'Vote Receipt',
+            title: 'หลักฐานการโหวต',
           });
           return; // หากแชร์สำเร็จหรือกดบันทึกลงเครื่องสำเร็จจบการทำงานเลย
         } catch (shareError) {
@@ -71,7 +71,7 @@ export default function SuccessPage() {
       link.click();
     } catch (err) {
       console.error("Failed to generate image", err);
-      alert("Failed to save image. Please take a screenshot instead.");
+      alert("บันทึกรูปภาพล้มเหลว กรุณาแคปหน้าจอแทน");
     }
   };
 
@@ -95,9 +95,9 @@ export default function SuccessPage() {
           <CheckCircle className="w-10 h-10" />
         </div>
         
-        <h1 className="text-3xl font-bold text-slate-800 text-center tracking-tight mb-2">Vote Submitted!</h1>
+        <h1 className="text-3xl font-bold text-slate-800 text-center tracking-tight mb-2">ส่งโหวตเรียบร้อย!</h1>
         <p className="text-slate-500 text-center mb-10 leading-relaxed">
-          Thank you for participating. Your vote has been recorded anonymously.
+          ขอบคุณที่ร่วมโหวต การโหวตของคุณถูกบันทึกเป็นความลับแล้ว
         </p>
 
         {showReceipt ? (
@@ -113,10 +113,10 @@ export default function SuccessPage() {
                 <div className="absolute top-0 right-0 w-32 h-32 bg-indigo-50 rounded-bl-full opacity-50"></div>
                 
                 <div className="text-xs font-bold uppercase tracking-widest text-indigo-400 mb-6">
-                  Official Receipt
+                  หลักฐานการโหวต
                 </div>
 
-                <div className="text-sm text-slate-500 mb-1">Reference Hash</div>
+                <div className="text-sm text-slate-500 mb-1">รหัสอ้างอิง</div>
                 <div className="text-2xl font-mono font-bold text-slate-800 tracking-wider mb-6 bg-slate-100 px-4 py-2 rounded-xl">
                   {refHash ? refHash.replace(/(VOTE-..).*(.)/, "$1***$2") : "VOTE-XXXXXX"}
                 </div>
@@ -135,14 +135,14 @@ export default function SuccessPage() {
               className="mt-8 flex items-center justify-center gap-2 w-full py-4 rounded-full font-bold text-white bg-slate-800 shadow-xl shadow-slate-200 hover:bg-slate-900 active:scale-95 transition-all"
             >
               <Download className="w-5 h-5" />
-              Save Receipt Image
+              บันทึกภาพหลักฐาน
             </button>
           </>
         ) : (
           <div className="w-full bg-white p-6 rounded-2xl shadow-sm border border-slate-100 text-center relative overflow-hidden">
             <div className="absolute top-0 right-0 w-24 h-24 bg-emerald-50 rounded-bl-full opacity-50"></div>
             <p className="text-slate-600 font-medium relative z-10">
-              You have already voted in this election. You may now close this page.
+              คุณได้ทำการโหวตไปแล้ว สามารถปิดหน้านี้ได้เลย
             </p>
           </div>
         )}

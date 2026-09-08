@@ -1,9 +1,9 @@
 "use client";
 
 import React, { useState, useEffect } from "react";
-import { useVoting } from "@/context/VotingContext";
+import { useVoting, VOTING_CATEGORIES } from "@/context/VotingContext";
 import { useRouter } from "next/navigation";
-import { ChevronLeft, Loader2, ShieldCheck } from "lucide-react";
+import { ChevronLeft, Loader2, ShieldCheck, Trophy } from "lucide-react";
 import { collection, addDoc, serverTimestamp } from "firebase/firestore";
 import { db } from "@/lib/firebase";
 import { motion } from "framer-motion";
@@ -18,15 +18,17 @@ export default function ConfirmPage() {
   const [submitting, setSubmitting] = useState(false);
   const [error, setError] = useState("");
 
+  const isAllCategoriesFilled = VOTING_CATEGORIES.every(c => state.votes[c.id]);
+
   useEffect(() => {
     if (state.hasVoted) {
       router.replace("/success");
-    } else if (state.selectedCandidates.length !== 3) {
+    } else if (!isAllCategoriesFilled) {
       router.replace("/vote");
     }
-  }, [state.selectedCandidates.length, state.hasVoted, router]);
+  }, [isAllCategoriesFilled, state.hasVoted, router]);
 
-  if (state.selectedCandidates.length !== 3) return null;
+  if (!isAllCategoriesFilled) return null;
 
   const handleSubmit = async () => {
     setSubmitting(true);
@@ -37,12 +39,17 @@ export default function ConfirmPage() {
       // Generate a simple UUID for voter token
       const voterClientToken = crypto.randomUUID ? crypto.randomUUID() : Math.random().toString(36).substring(2);
       
-      const selections = state.selectedCandidates.map(c => ({
-        candidateId: c.id,
-        candidateNickname: c.nickname,
-        department: c.department,
-        reason: state.impressions[c.id] || ""
-      }));
+      const selections = VOTING_CATEGORIES.map(cat => {
+        const vote = state.votes[cat.id];
+        return {
+          categoryId: cat.id,
+          categoryName: cat.title,
+          candidateId: vote.candidate.id,
+          candidateNickname: vote.candidate.nickname,
+          department: vote.candidate.department,
+          reason: vote.reason
+        };
+      });
 
       await addDoc(collection(db, "votes"), {
         votedAt: serverTimestamp(),
@@ -62,7 +69,7 @@ export default function ConfirmPage() {
       
     } catch (err: any) {
       console.error(err);
-      setError("Failed to submit vote. Please try again.");
+      setError("การส่งโหวตล้มเหลว กรุณาลองใหม่อีกครั้ง");
       setSubmitting(false);
     }
   };
@@ -78,34 +85,45 @@ export default function ConfirmPage() {
           <ChevronLeft className="w-6 h-6" />
         </button>
         <div>
-          <h1 className="text-2xl font-bold text-slate-800 tracking-tight">Review Vote</h1>
-          <p className="text-sm text-slate-500 mt-1">Please confirm your selections</p>
+          <h1 className="text-2xl font-bold text-slate-800 tracking-tight">ตรวจสอบการโหวต</h1>
+          <p className="text-sm text-slate-500 mt-1">กรุณายืนยันการเลือกของคุณ</p>
         </div>
       </div>
 
-      <div className="flex flex-col gap-4">
-        {state.selectedCandidates.map((c, i) => (
-          <motion.div 
-            initial={{ opacity: 0, x: -20 }}
-            animate={{ opacity: 1, x: 0 }}
-            transition={{ delay: i * 0.1 }}
-            key={c.id} 
-            className="bg-white rounded-2xl p-4 shadow-sm border border-slate-100 flex flex-col gap-3"
-          >
-            <div className="flex items-center gap-3">
-              <div className={`w-10 h-10 shrink-0 rounded-full flex items-center justify-center text-lg font-bold text-white shadow-inner bg-gradient-to-br ${c.avatarGradient}`}>
-                {c.nickname.match(/[ก-ฮ]/)?.[0] || c.nickname.charAt(0)}
+      <div className="flex flex-col gap-5">
+        {VOTING_CATEGORIES.map((cat, i) => {
+          const vote = state.votes[cat.id];
+          if (!vote) return null;
+
+          return (
+            <motion.div 
+              initial={{ opacity: 0, x: -20 }}
+              animate={{ opacity: 1, x: 0 }}
+              transition={{ delay: i * 0.1 }}
+              key={cat.id} 
+              className="bg-white rounded-2xl p-5 shadow-sm border border-slate-100 flex flex-col gap-3"
+            >
+              <div className="flex items-center gap-2 mb-1">
+                <Trophy className="w-4 h-4 text-indigo-400" />
+                <h3 className="font-bold text-sm text-indigo-600">{cat.title}</h3>
               </div>
-              <div>
-                <h3 className="font-semibold text-slate-800">{c.nickname}</h3>
-                <p className="text-xs text-slate-400">{c.department}</p>
+              
+              <div className="flex items-center gap-3">
+                <div className={`w-12 h-12 shrink-0 rounded-full flex items-center justify-center text-xl font-bold text-white shadow-inner bg-gradient-to-br ${vote.candidate.avatarGradient}`}>
+                  {vote.candidate.nickname.match(/[ก-ฮ]/)?.[0] || vote.candidate.nickname.charAt(0)}
+                </div>
+                <div>
+                  <h3 className="font-semibold text-slate-800 text-lg">{vote.candidate.nickname}</h3>
+                  <p className="text-xs text-slate-500">{vote.candidate.fullName} • {vote.candidate.department}</p>
+                </div>
               </div>
-            </div>
-            <div className="bg-slate-50 rounded-lg p-3 text-sm text-slate-600 italic border border-slate-100">
-              "{state.impressions[c.id]}"
-            </div>
-          </motion.div>
-        ))}
+              
+              <div className="bg-slate-50 rounded-xl p-3 mt-1 text-sm text-slate-600 italic border border-slate-100">
+                "{vote.reason}"
+              </div>
+            </motion.div>
+          );
+        })}
       </div>
 
       {error && (
@@ -118,7 +136,7 @@ export default function ConfirmPage() {
       <div className="fixed bottom-0 left-1/2 -translate-x-1/2 w-full max-w-md p-4 pb-8 glass rounded-t-3xl z-50 flex flex-col gap-3">
         <div className="flex items-center justify-center gap-2 text-xs text-slate-500">
           <ShieldCheck className="w-4 h-4 text-emerald-500" />
-          Votes are submitted anonymously
+          การโหวตจะเป็นความลับ
         </div>
         <button
           onClick={handleSubmit}
@@ -128,10 +146,10 @@ export default function ConfirmPage() {
           {submitting ? (
             <>
               <Loader2 className="w-5 h-5 animate-spin" />
-              Submitting...
+              กำลังส่ง...
             </>
           ) : (
-            "Submit Final Vote"
+            "ยืนยันการส่งโหวต"
           )}
         </button>
       </div>
