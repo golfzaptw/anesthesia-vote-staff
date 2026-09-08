@@ -11,6 +11,8 @@ export default function Home() {
   const { state, setVoterName } = useVoting();
   const [name, setName] = useState("");
   const [mounted, setMounted] = useState(false);
+  const [timeLeftStr, setTimeLeftStr] = useState<string | null>(null);
+  const [isTimeExpired, setIsTimeExpired] = useState(false);
 
   useEffect(() => {
     setMounted(true);
@@ -25,6 +27,37 @@ export default function Home() {
     }
   }, [state.hasVoted, router]);
 
+  useEffect(() => {
+    if (state.votingConfig.mode === "scheduled" && state.votingConfig.closeAt) {
+      const targetTime = new Date(state.votingConfig.closeAt).getTime();
+      
+      const updateTimer = () => {
+        // Force evaluation in current time, but the targetTime already has +07:00 offset
+        const now = new Date().getTime();
+        const diff = targetTime - now;
+        
+        if (diff <= 0) {
+          setIsTimeExpired(true);
+          setTimeLeftStr(null);
+        } else {
+          setIsTimeExpired(false);
+          const d = Math.floor(diff / (1000 * 60 * 60 * 24));
+          const h = Math.floor((diff % (1000 * 60 * 60 * 24)) / (1000 * 60 * 60));
+          const m = Math.floor((diff % (1000 * 60 * 60)) / (1000 * 60));
+          
+          setTimeLeftStr(`${d.toString().padStart(2, '0')}d${h.toString().padStart(2, '0')}h${m.toString().padStart(2, '0')}m`);
+        }
+      };
+      
+      updateTimer();
+      const interval = setInterval(updateTimer, 1000);
+      return () => clearInterval(interval);
+    } else {
+      setTimeLeftStr(null);
+      setIsTimeExpired(false);
+    }
+  }, [state.votingConfig]);
+
   const handleSubmit = (e: React.FormEvent) => {
     e.preventDefault();
     if (name.trim()) {
@@ -33,7 +66,28 @@ export default function Home() {
     }
   };
 
-  if (!mounted) return null;
+  if (!mounted || state.loadingStatus) return null;
+
+  // We check global state OR our local timer expiration
+  if (!state.isVotingOpen || isTimeExpired) {
+    return (
+      <div className="min-h-screen flex flex-col items-center justify-center p-6 bg-slate-50 relative overflow-hidden">
+        <motion.div
+          initial={{ opacity: 0, scale: 0.9 }}
+          animate={{ opacity: 1, scale: 1 }}
+          className="w-full max-w-sm z-10 text-center"
+        >
+          <div className="bg-white rounded-3xl p-8 shadow-xl shadow-rose-100/50 border border-slate-100 flex flex-col items-center">
+            <div className="w-16 h-16 bg-rose-50 text-rose-500 rounded-full flex items-center justify-center mb-6">
+              <UserCircle className="w-8 h-8" />
+            </div>
+            <h1 className="text-2xl font-bold text-slate-800 tracking-tight mb-2">ระบบปิดรับโหวตแล้ว</h1>
+            <p className="text-slate-500 text-sm">ขออภัย ขณะนี้หมดเวลาสำหรับการโหวตสตาฟในดวงใจแล้ว</p>
+          </div>
+        </motion.div>
+      </div>
+    );
+  }
 
   return (
     <div className="min-h-screen flex flex-col items-center justify-center p-6 bg-slate-50 relative overflow-hidden">
@@ -52,7 +106,14 @@ export default function Home() {
           </div>
 
           <h1 className="text-2xl font-bold text-slate-800 text-center tracking-tight mb-2">ยินดีต้อนรับ</h1>
-          <p className="text-slate-500 text-center mb-8 text-sm">กรุณากรอกชื่อจริงก่อนเข้าสู่ระบบโหวต</p>
+          <p className="text-slate-500 text-center mb-6 text-sm">กรุณากรอกชื่อจริงก่อนเข้าสู่ระบบโหวต</p>
+
+          {timeLeftStr && (
+            <div className="w-full bg-rose-50 border border-rose-100 rounded-xl p-4 mb-6 flex flex-col items-center justify-center">
+              <span className="text-xs font-bold text-rose-500 uppercase tracking-widest mb-1">เวลาที่เหลือ</span>
+              <span className="text-2xl font-black text-rose-600 tracking-tighter">{timeLeftStr}</span>
+            </div>
+          )}
 
           <form onSubmit={handleSubmit} className="w-full flex flex-col gap-4">
             <div>

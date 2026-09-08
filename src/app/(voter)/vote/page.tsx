@@ -23,16 +23,33 @@ export default function VotePage() {
   const [tempReason, setTempReason] = useState("");
 
   const { state, setVote, removeVote } = useVoting();
+  const [isSubmitting, setIsSubmitting] = useState(false);
+  const [isTimeExpired, setIsTimeExpired] = useState(false);
   const router = useRouter();
 
   useEffect(() => {
     setMounted(true);
     if (state.hasVoted) {
       router.replace("/success");
+    } else if (!state.loadingStatus && (!state.isVotingOpen || isTimeExpired)) {
+      router.replace("/");
     } else if (!state.voterName && !state.loadingCategories) {
       router.replace("/");
     }
-  }, [state.hasVoted, state.voterName, state.loadingCategories, router]);
+  }, [state.hasVoted, state.voterName, state.loadingCategories, state.isVotingOpen, isTimeExpired, state.loadingStatus, router]);
+
+  // Check scheduled timer locally to boot them if they idle on the vote page
+  useEffect(() => {
+    if (state.votingConfig?.mode === "scheduled" && state.votingConfig?.closeAt) {
+      const targetTime = new Date(state.votingConfig.closeAt).getTime();
+      const interval = setInterval(() => {
+        if (new Date().getTime() >= targetTime) {
+          setIsTimeExpired(true);
+        }
+      }, 1000);
+      return () => clearInterval(interval);
+    }
+  }, [state.votingConfig]);
 
   useEffect(() => {
     const fetchCandidates = async () => {

@@ -21,12 +21,10 @@ export default function RootLayout({
 }>) {
   return (
     <html lang="th">
-      <body suppressHydrationWarning className={`${kanit.variable} font-sans bg-slate-100 min-h-screen flex justify-center`}>
-        <div className="w-full max-w-md min-h-screen bg-slate-50 relative shadow-2xl overflow-x-hidden">
-          <VotingProvider>
-            {children}
-          </VotingProvider>
-        </div>
+      <body suppressHydrationWarning className={`${kanit.variable} font-sans min-h-screen bg-slate-50 text-slate-800`}>
+        <VotingProvider>
+          {children}
+        </VotingProvider>
       </body>
     </html>
   );

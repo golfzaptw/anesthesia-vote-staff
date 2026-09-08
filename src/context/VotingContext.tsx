@@ -56,12 +56,21 @@ export interface CategoryVote {
   reason: string;
 }
 
+interface VotingConfig {
+  mode: "manual" | "scheduled";
+  isManualOpen: boolean;
+  closeAt: string | null;
+}
+
 interface VotingState {
   voterName: string;
   votes: Record<string, CategoryVote>;
   hasVoted: boolean;
   categories: Category[];
   loadingCategories: boolean;
+  isVotingOpen: boolean;
+  votingConfig: VotingConfig;
+  loadingStatus: boolean;
 }
 
 interface VotingContextType {
@@ -83,6 +92,9 @@ export function VotingProvider({ children }: { children: React.ReactNode }) {
     hasVoted: false,
     categories: [],
     loadingCategories: true,
+    isVotingOpen: false,
+    votingConfig: { mode: "manual", isManualOpen: false, closeAt: null },
+    loadingStatus: true,
   });
 
   useEffect(() => {
@@ -134,6 +146,33 @@ export function VotingProvider({ children }: { children: React.ReactNode }) {
       setState(prev => ({ ...prev, loadingCategories: false }));
     });
 
+    return () => unsubscribe();
+  }, []);
+
+  useEffect(() => {
+    const statusRef = doc(db, "config", "votingStatus");
+    const unsubscribe = onSnapshot(statusRef, (snapshot) => {
+      if (snapshot.exists()) {
+        const data = snapshot.data();
+        const config: VotingConfig = {
+          mode: data.mode || "manual",
+          isManualOpen: data.isManualOpen ?? (data.isOpen ?? false), // Fallback to old field
+          closeAt: data.closeAt || null,
+        };
+        
+        // Initial calculation, but since time passes, components will need to re-check if scheduled
+        let isOpen = false;
+        if (config.mode === "manual") {
+          isOpen = config.isManualOpen;
+        } else if (config.mode === "scheduled" && config.closeAt) {
+          isOpen = new Date().getTime() < new Date(config.closeAt).getTime();
+        }
+        
+        setState(prev => ({ ...prev, isVotingOpen: isOpen, votingConfig: config, loadingStatus: false }));
+      } else {
+        setState(prev => ({ ...prev, isVotingOpen: false, loadingStatus: false }));
+      }
+    });
     return () => unsubscribe();
   }, []);
 
