@@ -338,11 +338,19 @@ export default function AdminDashboardPage() {
     e.preventDefault();
     setSavingConfig(true);
     try {
+      let finalCloseAt = editingConfig.closeAt;
+      // Ensure we append the timezone so it acts as Thai time, and only if it doesn't already have it
+      if (editingConfig.mode === "scheduled" && finalCloseAt) {
+        if (finalCloseAt.length === 16) {
+          finalCloseAt = finalCloseAt + ":00+07:00";
+        }
+      }
+
       const statusRef = doc(db, "config", "votingStatus");
       await setDoc(statusRef, { 
         mode: editingConfig.mode, 
         isManualOpen: editingConfig.isManualOpen, 
-        closeAt: editingConfig.closeAt 
+        closeAt: finalCloseAt 
       }, { merge: true });
       setIsVotingSettingsOpen(false);
     } catch (err) {
@@ -449,7 +457,10 @@ export default function AdminDashboardPage() {
               {/* System Settings Button */}
               <button 
                 onClick={() => {
-                  setEditingConfig(votingConfig);
+                  setEditingConfig({
+                    ...votingConfig,
+                    closeAt: votingConfig.closeAt ? votingConfig.closeAt.substring(0, 16) : null
+                  });
                   setIsVotingSettingsOpen(true);
                 }}
                 className="bg-white p-2 pl-3 rounded-2xl shadow-sm border border-slate-200 flex items-center gap-3 hover:bg-slate-50 transition-colors"
@@ -849,8 +860,8 @@ export default function AdminDashboardPage() {
                     <input 
                       type="datetime-local" 
                       required
-                      value={editingConfig.closeAt ? new Date(editingConfig.closeAt).toISOString().slice(0, 16) : ""}
-                      onChange={(e) => setEditingConfig({ ...editingConfig, closeAt: new Date(e.target.value).toISOString() })}
+                      value={editingConfig.closeAt || ""}
+                      onChange={(e) => setEditingConfig({ ...editingConfig, closeAt: e.target.value })}
                       className="w-full px-4 py-3 bg-white border border-slate-300 rounded-xl focus:ring-2 focus:ring-indigo-500/20 focus:border-indigo-500 outline-none transition-all font-medium text-slate-700" 
                     />
                   </div>

@@ -44,8 +44,9 @@ export default function Home() {
           const d = Math.floor(diff / (1000 * 60 * 60 * 24));
           const h = Math.floor((diff % (1000 * 60 * 60 * 24)) / (1000 * 60 * 60));
           const m = Math.floor((diff % (1000 * 60 * 60)) / (1000 * 60));
+          const s = Math.floor((diff % (1000 * 60)) / 1000);
           
-          setTimeLeftStr(`${d.toString().padStart(2, '0')}d${h.toString().padStart(2, '0')}h${m.toString().padStart(2, '0')}m`);
+          setTimeLeftStr(`${d.toString().padStart(2, '0')}d ${h.toString().padStart(2, '0')}h ${m.toString().padStart(2, '0')}m ${s.toString().padStart(2, '0')}s`);
         }
       };
       
@@ -109,9 +110,9 @@ export default function Home() {
           <p className="text-slate-500 text-center mb-6 text-sm">กรุณากรอกชื่อจริงก่อนเข้าสู่ระบบโหวต</p>
 
           {timeLeftStr && (
-            <div className="w-full bg-rose-50 border border-rose-100 rounded-xl p-4 mb-6 flex flex-col items-center justify-center">
-              <span className="text-xs font-bold text-rose-500 uppercase tracking-widest mb-1">เวลาที่เหลือ</span>
-              <span className="text-2xl font-black text-rose-600 tracking-tighter">{timeLeftStr}</span>
+            <div className="w-full bg-slate-50/80 border border-slate-200 rounded-xl p-4 mb-6 flex flex-col items-center justify-center">
+              <span className="text-xs font-semibold text-slate-500 uppercase tracking-widest mb-1">เวลาที่เหลือ</span>
+              <span className="text-2xl font-bold text-slate-700 tracking-tight">{timeLeftStr}</span>
             </div>
           )}
 
