@@ -3,14 +3,15 @@
 import React, { useEffect, useState, useMemo } from "react";
 import { collection, getDocs, orderBy, query } from "firebase/firestore";
 import { db } from "@/lib/firebase";
-import { useVoting, Candidate, VOTING_CATEGORIES, Category } from "@/context/VotingContext";
-import { Search, CheckCircle2, ChevronRight, X, UserPlus, Info } from "lucide-react";
+import { useVoting, Candidate, Category } from "@/context/VotingContext";
+import { Search, CheckCircle2, ChevronRight, X, UserPlus, Info, Loader2 } from "lucide-react";
 import { useRouter } from "next/navigation";
 import { motion, AnimatePresence } from "framer-motion";
 
 export default function VotePage() {
   const [candidates, setCandidates] = useState<Candidate[]>([]);
   const [loading, setLoading] = useState(true);
+  const [mounted, setMounted] = useState(false);
   
   // Modal state
   const [activeCategory, setActiveCategory] = useState<Category | null>(null);
@@ -25,10 +26,13 @@ export default function VotePage() {
   const router = useRouter();
 
   useEffect(() => {
+    setMounted(true);
     if (state.hasVoted) {
       router.replace("/success");
+    } else if (!state.voterName && !state.loadingCategories) {
+      router.replace("/");
     }
-  }, [state.hasVoted, router]);
+  }, [state.hasVoted, state.voterName, state.loadingCategories, router]);
 
   useEffect(() => {
     const fetchCandidates = async () => {
@@ -44,6 +48,7 @@ export default function VotePage() {
       }
     };
     fetchCandidates();
+    setMounted(true);
   }, []);
 
   const departments = useMemo(() => {
@@ -65,7 +70,7 @@ export default function VotePage() {
     });
   }, [candidates, search, filterDept]);
 
-  const isAllCategoriesFilled = VOTING_CATEGORIES.every(c => state.votes[c.id]);
+  const isAllCategoriesFilled = state.categories.length > 0 && state.categories.every(c => state.votes[c.id]);
 
   const handleOpenModal = (category: Category) => {
     setActiveCategory(category);
@@ -93,11 +98,12 @@ export default function VotePage() {
     setActiveCategory(null);
   };
 
-  if (loading) {
+  if (!mounted) return null;
+
+  if (state.loadingCategories || loading) {
     return (
-      <div className="flex flex-col items-center justify-center min-h-screen text-slate-500">
-        <div className="animate-spin rounded-full h-12 w-12 border-b-2 border-indigo-600 mb-4"></div>
-        <p>กำลังโหลดข้อมูล...</p>
+      <div className="min-h-screen flex items-center justify-center">
+        <Loader2 className="w-8 h-8 animate-spin text-indigo-500" />
       </div>
     );
   }
@@ -110,7 +116,7 @@ export default function VotePage() {
       </div>
 
       <div className="flex flex-col gap-4">
-        {VOTING_CATEGORIES.map((cat) => {
+        {state.categories.map((cat, i) => {
           const vote = state.votes[cat.id];
           const isCompleted = !!vote;
           
@@ -171,7 +177,7 @@ export default function VotePage() {
       <div className="fixed bottom-0 left-1/2 -translate-x-1/2 w-full max-w-md p-4 pb-8 glass rounded-t-3xl z-40">
         <div className="flex justify-between items-center mb-2">
           <span className="text-sm font-medium text-slate-600">
-            เลือกแล้ว: <strong className="text-indigo-600 text-lg">{Object.keys(state.votes).length}</strong> / 4
+            เลือกแล้ว: <strong className="text-indigo-600 text-lg">{Object.keys(state.votes).length}</strong> / {state.categories.length}
           </span>
           <button
             onClick={() => router.push("/confirm")}
@@ -213,7 +219,7 @@ export default function VotePage() {
               </div>
               <div className="bg-blue-50 text-blue-800 p-3 rounded-xl text-xs flex gap-2 items-start">
                 <Info className="w-4 h-4 shrink-0 mt-0.5" />
-                <p>{activeCategory.criteria}</p>
+                <p>{activeCategory.description}</p>
               </div>
             </div>
 

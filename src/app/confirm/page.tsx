@@ -1,7 +1,7 @@
 "use client";
 
 import React, { useState, useEffect } from "react";
-import { useVoting, VOTING_CATEGORIES } from "@/context/VotingContext";
+import { useVoting } from "@/context/VotingContext";
 import { useRouter } from "next/navigation";
 import { ChevronLeft, Loader2, ShieldCheck, Trophy } from "lucide-react";
 import { collection, addDoc, serverTimestamp } from "firebase/firestore";
@@ -18,7 +18,7 @@ export default function ConfirmPage() {
   const [submitting, setSubmitting] = useState(false);
   const [error, setError] = useState("");
 
-  const isAllCategoriesFilled = VOTING_CATEGORIES.every(c => state.votes[c.id]);
+  const isAllCategoriesFilled = state.categories.length > 0 && state.categories.every(c => state.votes[c.id]);
 
   useEffect(() => {
     if (state.hasVoted) {
@@ -39,7 +39,7 @@ export default function ConfirmPage() {
       // Generate a simple UUID for voter token
       const voterClientToken = crypto.randomUUID ? crypto.randomUUID() : Math.random().toString(36).substring(2);
       
-      const selections = VOTING_CATEGORIES.map(cat => {
+      const selections = state.categories.map(cat => {
         const vote = state.votes[cat.id];
         return {
           categoryId: cat.id,
@@ -55,6 +55,7 @@ export default function ConfirmPage() {
         votedAt: serverTimestamp(),
         voteReference,
         voterClientToken,
+        voterName: state.voterName,
         selections
       });
 
@@ -91,7 +92,7 @@ export default function ConfirmPage() {
       </div>
 
       <div className="flex flex-col gap-5">
-        {VOTING_CATEGORIES.map((cat, i) => {
+        {state.categories.map((cat, i) => {
           const vote = state.votes[cat.id];
           if (!vote) return null;
 
@@ -136,7 +137,7 @@ export default function ConfirmPage() {
       <div className="fixed bottom-0 left-1/2 -translate-x-1/2 w-full max-w-md p-4 pb-8 glass rounded-t-3xl z-50 flex flex-col gap-3">
         <div className="flex items-center justify-center gap-2 text-xs text-slate-500">
           <ShieldCheck className="w-4 h-4 text-emerald-500" />
-          การโหวตจะเป็นความลับ
+          ระบบจะบันทึกข้อมูลโหวตของ: <span className="font-bold text-slate-700">{state.voterName}</span>
         </div>
         <button
           onClick={handleSubmit}

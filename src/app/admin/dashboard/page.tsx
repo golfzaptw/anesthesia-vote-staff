@@ -4,10 +4,11 @@ import React, { useEffect, useState, useMemo } from "react";
 import { useRouter } from "next/navigation";
 import { onAuthStateChanged, signOut } from "firebase/auth";
 import * as XLSX from "xlsx";
-import { collection, getDocs, doc, updateDoc, writeBatch } from "firebase/firestore";
+import { collection, getDocs, doc, updateDoc, writeBatch, setDoc, deleteDoc } from "firebase/firestore";
 import { auth, db } from "@/lib/firebase";
-import { Loader2, LogOut, MessageSquareText, Trophy, Users, X, Edit2, Search, UploadCloud, FileSpreadsheet } from "lucide-react";
+import { Loader2, LogOut, MessageSquareText, Trophy, Users, X, Edit2, Search, UploadCloud, FileSpreadsheet, Plus, Trash2 } from "lucide-react";
 import { motion, AnimatePresence } from "framer-motion";
+import { Category } from "@/context/VotingContext";
 
 const gradients = [
   { bg: 'bg-rose-100', text: 'text-rose-600' },
@@ -25,9 +26,20 @@ const gradients = [
   { bg: 'bg-orange-100', text: 'text-orange-600' },
 ];
 
+const tailwindGradients = [
+  "from-amber-400 to-orange-500",
+  "from-blue-400 to-indigo-500",
+  "from-emerald-400 to-teal-500",
+  "from-rose-400 to-pink-500",
+  "from-purple-400 to-violet-500",
+  "from-cyan-400 to-blue-500",
+  "from-fuchsia-400 to-purple-500",
+];
+
 const getRandomGradient = () => gradients[Math.floor(Math.random() * gradients.length)];
 
 interface VoteSelection {
+  categoryId: string;
   candidateId: string;
   candidateNickname: string;
   department: string;
@@ -58,14 +70,23 @@ export default function AdminDashboardPage() {
   const [authChecked, setAuthChecked] = useState(false);
   const [votesData, setVotesData] = useState<VoteDoc[]>([]);
   const [candidates, setCandidates] = useState<CandidateDoc[]>([]);
-  const [activeTab, setActiveTab] = useState<"leaderboard" | "staff">("leaderboard");
+  const [categories, setCategories] = useState<Category[]>([]);
+  const [activeTab, setActiveTab] = useState<"leaderboard" | "staff" | "categories">("leaderboard");
   const [searchQuery, setSearchQuery] = useState("");
+  
+  // Staff Editing
   const [editingCandidate, setEditingCandidate] = useState<CandidateDoc | null>(null);
   const [savingCandidate, setSavingCandidate] = useState(false);
   const [uploadingStaff, setUploadingStaff] = useState(false);
   const [showUploadGuide, setShowUploadGuide] = useState(false);
   const [uploadPreview, setUploadPreview] = useState<any[] | null>(null);
   const fileInputRef = React.useRef<HTMLInputElement>(null);
+  
+  // Category Editing
+  const [editingCategory, setEditingCategory] = useState<Category | null>(null);
+  const [isNewCategory, setIsNewCategory] = useState(false);
+  const [savingCategory, setSavingCategory] = useState(false);
+
   const [loading, setLoading] = useState(true);
   const [selectedStaff, setSelectedStaff] = useState<LeaderboardEntry | null>(null);
   const router = useRouter();
@@ -88,13 +109,17 @@ export default function AdminDashboardPage() {
     
     const fetchData = async () => {
       try {
-        const [votesSnap, candidatesSnap] = await Promise.all([
+        const [votesSnap, candidatesSnap, categoriesSnap] = await Promise.all([
           getDocs(collection(db, "votes")),
-          getDocs(collection(db, "candidates"))
+          getDocs(collection(db, "candidates")),
+          getDocs(collection(db, "categories"))
         ]);
         
         setVotesData(votesSnap.docs.map(doc => doc.data() as VoteDoc));
         setCandidates(candidatesSnap.docs.map(doc => ({ id: doc.id, ...doc.data() } as CandidateDoc)));
+        const cats = categoriesSnap.docs.map(doc => ({ id: doc.id, ...doc.data() } as Category));
+        cats.sort((a, b) => (a.order ?? 99) - (b.order ?? 99));
+        setCategories(cats);
       } catch (err) {
         console.error("Failed to fetch data", err);
       } finally {
@@ -130,6 +155,42 @@ export default function AdminDashboardPage() {
       alert("Failed to update. Check console.");
     } finally {
       setSavingCandidate(false);
+    }
+  };
+
+  const handleSaveCategory = async (e: React.FormEvent) => {
+    e.preventDefault();
+    if (!editingCategory) return;
+    setSavingCategory(true);
+    try {
+      if (isNewCategory) {
+        const newDocRef = doc(collection(db, "categories"));
+        const newCat = { ...editingCategory, id: newDocRef.id };
+        await setDoc(newDocRef, newCat);
+        setCategories(prev => [...prev, newCat].sort((a, b) => (a.order ?? 99) - (b.order ?? 99)));
+      } else {
+        const catRef = doc(db, "categories", editingCategory.id);
+        await updateDoc(catRef, { ...editingCategory });
+        setCategories(prev => prev.map(c => c.id === editingCategory.id ? editingCategory : c).sort((a, b) => (a.order ?? 99) - (b.order ?? 99)));
+      }
+      setEditingCategory(null);
+      setIsNewCategory(false);
+    } catch (err) {
+      console.error(err);
+      alert("Failed to save category");
+    } finally {
+      setSavingCategory(false);
+    }
+  };
+
+  const handleDeleteCategory = async (id: string) => {
+    if (!confirm("Are you sure you want to delete this category? This cannot be undone.")) return;
+    try {
+      await deleteDoc(doc(db, "categories", id));
+      setCategories(prev => prev.filter(c => c.id !== id));
+    } catch (err) {
+      console.error(err);
+      alert("Failed to delete category");
     }
   };
 
@@ -201,51 +262,47 @@ export default function AdminDashboardPage() {
     }
   };
 
-  const leaderboard = useMemo(() => {
-    const map = new Map<string, LeaderboardEntry>();
+  // Group by category, and rank candidates within each category
+  const leaderboardByCategory = useMemo(() => {
+    const result: Record<string, LeaderboardEntry[]> = {};
     
-    votesData.forEach(vote => {
-      vote.selections.forEach(sel => {
-        if (!map.has(sel.candidateId)) {
-          map.set(sel.candidateId, {
-            id: sel.candidateId,
-            nickname: sel.candidateNickname,
-            department: sel.department,
-            votes: 0,
-            reasons: []
-          });
+    categories.forEach(cat => {
+      const map = new Map<string, LeaderboardEntry>();
+      
+      votesData.forEach(vote => {
+        vote.selections.forEach(sel => {
+          if (sel.categoryId === cat.id) {
+            if (!map.has(sel.candidateId)) {
+              map.set(sel.candidateId, {
+                id: sel.candidateId,
+                nickname: sel.candidateNickname,
+                department: sel.department,
+                votes: 0,
+                reasons: []
+              });
+            }
+            const entry = map.get(sel.candidateId)!;
+            entry.votes += 1;
+            if (sel.reason.trim()) entry.reasons.push(sel.reason.trim());
+          }
+        });
+      });
+      
+      const sorted = Array.from(map.values()).sort((a, b) => b.votes - a.votes || a.nickname.localeCompare(b.nickname, 'th'));
+      
+      let currentRank = 1;
+      let currentVotes = sorted[0]?.votes || 0;
+      result[cat.id] = sorted.map((entry, index) => {
+        if (entry.votes < currentVotes) {
+          currentRank = index + 1;
+          currentVotes = entry.votes;
         }
-        
-        const entry = map.get(sel.candidateId)!;
-        entry.votes += 1;
-        if (sel.reason.trim()) {
-          entry.reasons.push(sel.reason.trim());
-        }
+        return { ...entry, rank: currentRank };
       });
     });
-
-    const sorted = Array.from(map.values()).sort((a, b) => {
-      if (b.votes !== a.votes) {
-        return b.votes - a.votes; // เรียงตามคะแนนมากไปน้อย
-      }
-      // ถ้าคะแนนเท่ากัน ให้เรียงตามชื่อตัวอักษร (ก-ฮ)
-      return a.nickname.localeCompare(b.nickname, 'th');
-    });
-
-    let currentRank = 1;
-    let currentVotes = sorted[0]?.votes || 0;
     
-    return sorted.map((entry, index) => {
-      if (entry.votes < currentVotes) {
-        currentRank = index + 1;
-        currentVotes = entry.votes;
-      }
-      return { ...entry, rank: currentRank };
-    });
-  }, [votesData]);
-
-  const top3 = leaderboard.filter(e => (e.rank ?? 0) <= 3);
-  const rest = leaderboard.filter(e => (e.rank ?? 0) > 3);
+    return result;
+  }, [votesData, categories]);
 
   if (!authChecked || loading) {
     return (
@@ -262,7 +319,6 @@ export default function AdminDashboardPage() {
 
   return (
     <div className="min-h-screen w-full bg-slate-50 flex justify-center pb-20">
-      {/* Remove max-w restriction for admin if desired, but keeping max-w-3xl for tablet readability inside the layout */}
       <div className="w-full max-w-3xl p-6">
         <div className="flex justify-between items-center mb-8">
           <div>
@@ -276,111 +332,125 @@ export default function AdminDashboardPage() {
         </div>
 
         {/* Tabs */}
-        <div className="flex gap-2 mb-8 bg-slate-200/50 p-1 rounded-xl w-fit">
+        <div className="flex gap-2 mb-8 bg-slate-200/50 p-1 rounded-xl w-fit overflow-x-auto">
           <button
             onClick={() => setActiveTab("leaderboard")}
-            className={`px-4 py-2 rounded-lg text-sm font-bold transition-colors ${activeTab === "leaderboard" ? "bg-white text-indigo-600 shadow-sm" : "text-slate-500 hover:text-slate-700"}`}
+            className={`whitespace-nowrap px-4 py-2 rounded-lg text-sm font-bold transition-colors ${activeTab === "leaderboard" ? "bg-white text-indigo-600 shadow-sm" : "text-slate-500 hover:text-slate-700"}`}
           >
             Leaderboard
           </button>
           <button
             onClick={() => setActiveTab("staff")}
-            className={`px-4 py-2 rounded-lg text-sm font-bold transition-colors ${activeTab === "staff" ? "bg-white text-indigo-600 shadow-sm" : "text-slate-500 hover:text-slate-700"}`}
+            className={`whitespace-nowrap px-4 py-2 rounded-lg text-sm font-bold transition-colors ${activeTab === "staff" ? "bg-white text-indigo-600 shadow-sm" : "text-slate-500 hover:text-slate-700"}`}
           >
             Manage Staff
           </button>
+          <button
+            onClick={() => setActiveTab("categories")}
+            className={`whitespace-nowrap px-4 py-2 rounded-lg text-sm font-bold transition-colors ${activeTab === "categories" ? "bg-white text-indigo-600 shadow-sm" : "text-slate-500 hover:text-slate-700"}`}
+          >
+            Categories
+          </button>
         </div>
 
-        {activeTab === "leaderboard" ? (
+        {activeTab === "leaderboard" && (
           <>
-            {/* Overview Cards */}
-        <div className="grid grid-cols-2 gap-4 mb-8">
-          <div className="bg-white p-5 rounded-2xl shadow-sm border border-slate-100 flex items-center gap-4">
-            <div className="w-12 h-12 bg-indigo-50 text-indigo-500 rounded-full flex items-center justify-center">
-              <Users className="w-6 h-6" />
-            </div>
-            <div>
-              <div className="text-sm text-slate-500 font-medium">Total Ballots</div>
-              <div className="text-2xl font-bold text-slate-800">{votesData.length}</div>
-            </div>
-          </div>
-          <div className="bg-white p-5 rounded-2xl shadow-sm border border-slate-100 flex items-center gap-4">
-            <div className="w-12 h-12 bg-amber-50 text-amber-500 rounded-full flex items-center justify-center">
-              <Trophy className="w-6 h-6" />
-            </div>
-            <div>
-              <div className="text-sm text-slate-500 font-medium">Staff Voted</div>
-              <div className="text-2xl font-bold text-slate-800">{leaderboard.length}</div>
-            </div>
-          </div>
-        </div>
-
-        {/* Top 3 Spotlight */}
-        <h2 className="text-lg font-bold text-slate-800 mb-4">Top 3 Candidates</h2>
-        <div className="grid grid-cols-1 md:grid-cols-3 gap-4 mb-8">
-          {top3.map((entry, idx) => {
-            // เช็คว่ามีคนได้คะแนนเท่ากับคนนี้มากกว่า 1 คนหรือไม่
-            const isTie = leaderboard.filter(e => e.votes === entry.votes).length > 1;
-            
-            return (
-              <div key={entry.id} className="relative bg-white p-5 rounded-2xl shadow-sm border border-slate-200 flex flex-col items-center text-center">
-                
-                {/* ป้ายแจ้งเตือนคะแนนเท่ากัน */}
-                {isTie && (
-                  <div className="absolute top-3 left-3 bg-rose-100 text-rose-600 text-[10px] font-bold px-2 py-0.5 rounded-full border border-rose-200 shadow-sm animate-pulse">
-                    TIE
-                  </div>
-                )}
-
-                <div className={`absolute -top-3 -right-3 w-8 h-8 rounded-full flex items-center justify-center font-bold text-white shadow-lg ${
-                  entry.rank === 1 ? "bg-amber-400" : entry.rank === 2 ? "bg-slate-300" : "bg-amber-700"
-                }`}>
-                  {entry.rank}
+            <div className="grid grid-cols-2 gap-4 mb-8">
+              <div className="bg-white p-5 rounded-2xl shadow-sm border border-slate-100 flex items-center gap-4">
+                <div className="w-12 h-12 bg-indigo-50 text-indigo-500 rounded-full flex items-center justify-center">
+                  <Users className="w-6 h-6" />
                 </div>
-                <h3 className="font-bold text-slate-800 text-lg mt-2">{entry.nickname}</h3>
-                <p className="text-xs text-slate-400 mb-3">{entry.department}</p>
-                <div className="text-3xl font-black text-indigo-600 mb-3">{entry.votes}</div>
-                <button 
-                  onClick={() => setSelectedStaff(entry)}
-                  className="text-xs font-semibold text-indigo-600 bg-indigo-50 px-3 py-1.5 rounded-full hover:bg-indigo-100 transition-colors"
-                >
-                  View Impressions ({entry.reasons.length})
-                </button>
-              </div>
-            );
-          })}
-          {top3.length === 0 && <div className="col-span-3 text-center text-slate-400 py-6">No votes yet</div>}
-        </div>
-
-        {/* Full Leaderboard */}
-        <h2 className="text-lg font-bold text-slate-800 mb-4">Full Leaderboard</h2>
-        <div className="bg-white rounded-2xl shadow-sm border border-slate-100 overflow-hidden">
-          {rest.map((entry, idx) => (
-            <div key={entry.id} className="flex items-center justify-between p-4 border-b border-slate-50 last:border-0 hover:bg-slate-50 transition-colors">
-              <div className="flex items-center gap-4">
-                <div className="text-slate-400 font-bold w-4 text-right">{entry.rank}</div>
                 <div>
-                  <div className="font-semibold text-slate-800">{entry.nickname}</div>
-                  <div className="text-xs text-slate-400">{entry.department}</div>
+                  <div className="text-sm text-slate-500 font-medium">Total Ballots</div>
+                  <div className="text-2xl font-bold text-slate-800">{votesData.length}</div>
                 </div>
               </div>
-              <div className="flex items-center gap-4">
-                <div className="font-bold text-slate-700">{entry.votes} <span className="text-xs font-normal text-slate-400">votes</span></div>
-                <button 
-                  onClick={() => setSelectedStaff(entry)}
-                  className="p-2 text-indigo-500 hover:bg-indigo-50 rounded-full transition-colors"
-                >
-                  <MessageSquareText className="w-5 h-5" />
-                </button>
-              </div>
             </div>
-          ))}
-          {rest.length === 0 && top3.length > 0 && <div className="p-6 text-center text-slate-400">No other candidates</div>}
-        </div>
+
+            {/* Winners per Category */}
+            <h2 className="text-lg font-bold text-slate-800 mb-4">Category Winners (Top 1)</h2>
+            <div className="flex flex-col gap-6 mb-8">
+              {categories.map((cat) => {
+                const leaderboard = leaderboardByCategory[cat.id] || [];
+                const top1 = leaderboard.filter(e => e.rank === 1);
+                
+                return (
+                  <div key={cat.id} className="bg-white rounded-2xl shadow-sm border border-slate-200 overflow-hidden">
+                    <div className={`p-4 bg-gradient-to-r ${cat.color} text-white`}>
+                      <h3 className="font-bold text-lg">{cat.title}</h3>
+                    </div>
+                    <div className="p-4 flex flex-col gap-4">
+                      {top1.length > 0 ? (
+                        <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-4">
+                          {top1.map(entry => (
+                            <div key={entry.id} className="relative bg-slate-50 p-4 rounded-xl border border-slate-100 flex flex-col items-center text-center">
+                              {top1.length > 1 && (
+                                <div className="absolute top-2 left-2 bg-rose-100 text-rose-600 text-[10px] font-bold px-2 py-0.5 rounded-full border border-rose-200 shadow-sm animate-pulse">
+                                  TIE
+                                </div>
+                              )}
+                              <div className="absolute -top-3 -right-3 w-8 h-8 rounded-full bg-amber-400 flex items-center justify-center font-bold text-white shadow-lg">1</div>
+                              <h4 className="font-bold text-slate-800 text-lg">{entry.nickname}</h4>
+                              <p className="text-xs text-slate-400 mb-2">{entry.department}</p>
+                              <div className="text-2xl font-black text-indigo-600 mb-2">{entry.votes}</div>
+                              <button 
+                                onClick={() => setSelectedStaff(entry)}
+                                className="text-xs font-semibold text-indigo-600 bg-indigo-50 px-3 py-1.5 rounded-full hover:bg-indigo-100 transition-colors"
+                              >
+                                View Impressions ({entry.reasons.length})
+                              </button>
+                            </div>
+                          ))}
+                        </div>
+                      ) : (
+                        <div className="text-center text-slate-400 py-6">No votes in this category yet.</div>
+                      )}
+                    </div>
+                  </div>
+                );
+              })}
+            </div>
+
+            <h2 className="text-lg font-bold text-slate-800 mb-4">Full Leaderboards</h2>
+            <div className="flex flex-col gap-6">
+              {categories.map((cat) => {
+                const rest = (leaderboardByCategory[cat.id] || []).filter(e => (e.rank ?? 0) > 1);
+                
+                return (
+                  <div key={cat.id} className="bg-white rounded-2xl shadow-sm border border-slate-100 overflow-hidden">
+                     <div className="p-3 bg-slate-50 border-b border-slate-100">
+                      <h4 className="font-bold text-slate-700 text-sm">Runner-ups: {cat.title}</h4>
+                    </div>
+                    {rest.map((entry) => (
+                      <div key={entry.id} className="flex items-center justify-between p-4 border-b border-slate-50 last:border-0 hover:bg-slate-50 transition-colors">
+                        <div className="flex items-center gap-4">
+                          <div className="text-slate-400 font-bold w-4 text-right">{entry.rank}</div>
+                          <div>
+                            <div className="font-semibold text-slate-800">{entry.nickname}</div>
+                            <div className="text-xs text-slate-400">{entry.department}</div>
+                          </div>
+                        </div>
+                        <div className="flex items-center gap-4">
+                          <div className="font-bold text-slate-700">{entry.votes} <span className="text-xs font-normal text-slate-400">votes</span></div>
+                          <button 
+                            onClick={() => setSelectedStaff(entry)}
+                            className="p-2 text-indigo-500 hover:bg-indigo-50 rounded-full transition-colors"
+                          >
+                            <MessageSquareText className="w-5 h-5" />
+                          </button>
+                        </div>
+                      </div>
+                    ))}
+                    {rest.length === 0 && <div className="p-6 text-center text-slate-400">No other candidates</div>}
+                  </div>
+                );
+              })}
+            </div>
           </>
-        ) : (
+        )}
+
+        {activeTab === "staff" && (
           <>
-            {/* Manage Staff View */}
             <div className="flex flex-col md:flex-row gap-4 mb-6">
               <div className="relative flex-1">
                 <div className="absolute inset-y-0 left-4 flex items-center pointer-events-none text-slate-400">
@@ -432,6 +502,57 @@ export default function AdminDashboardPage() {
             </div>
           </>
         )}
+
+        {activeTab === "categories" && (
+          <>
+            <div className="flex justify-end mb-4">
+              <button
+                onClick={() => {
+                  setEditingCategory({ id: "", order: categories.length + 1, title: "", description: "", color: tailwindGradients[0] });
+                  setIsNewCategory(true);
+                }}
+                className="flex items-center justify-center gap-2 px-6 py-3 bg-indigo-600 text-white rounded-xl font-bold shadow-sm hover:bg-indigo-700 transition-colors"
+              >
+                <Plus className="w-5 h-5" />
+                Add Category
+              </button>
+            </div>
+            <div className="flex flex-col gap-4">
+              {categories.map(cat => (
+                <div key={cat.id} className="bg-white rounded-2xl p-5 shadow-sm border border-slate-100 relative">
+                  <div className="flex justify-between items-start mb-2 pr-16">
+                    <h3 className={`font-bold text-lg bg-gradient-to-r ${cat.color} bg-clip-text text-transparent`}>
+                      <span className="text-slate-400 font-medium mr-2">#{cat.order}</span>
+                      {cat.title}
+                    </h3>
+                  </div>
+                  <p className="text-sm text-slate-600 mb-2 font-semibold">{cat.description}</p>
+                  
+                  <div className="absolute top-4 right-4 flex gap-2">
+                    <button 
+                      onClick={() => { setEditingCategory(cat); setIsNewCategory(false); }}
+                      className="p-2 text-slate-400 hover:bg-indigo-50 hover:text-indigo-600 rounded-full transition-colors"
+                    >
+                      <Edit2 className="w-4 h-4" />
+                    </button>
+                    <button 
+                      onClick={() => handleDeleteCategory(cat.id)}
+                      className="p-2 text-slate-400 hover:bg-rose-50 hover:text-rose-600 rounded-full transition-colors"
+                    >
+                      <Trash2 className="w-4 h-4" />
+                    </button>
+                  </div>
+                </div>
+              ))}
+              {categories.length === 0 && (
+                <div className="p-8 text-center text-slate-400 bg-white rounded-2xl border border-slate-100">
+                  No categories found.
+                </div>
+              )}
+            </div>
+          </>
+        )}
+
       </div>
 
       {/* Edit Staff Modal */}
@@ -488,6 +609,80 @@ export default function AdminDashboardPage() {
                     className="mt-4 w-full py-3 bg-indigo-600 text-white rounded-xl font-bold hover:bg-indigo-700 disabled:opacity-50 transition-colors"
                   >
                     {savingCandidate ? <Loader2 className="w-5 h-5 animate-spin mx-auto" /> : "Save Changes"}
+                  </button>
+                </form>
+              </div>
+            </motion.div>
+          </>
+        )}
+      </AnimatePresence>
+
+      {/* Edit Category Modal */}
+      <AnimatePresence>
+        {editingCategory && (
+          <>
+            <motion.div 
+              initial={{ opacity: 0 }} animate={{ opacity: 1 }} exit={{ opacity: 0 }}
+              className="fixed inset-0 bg-slate-900/40 backdrop-blur-sm z-40"
+              onClick={() => setEditingCategory(null)}
+            />
+            <motion.div 
+              initial={{ y: "100%" }} animate={{ y: 0 }} exit={{ y: "100%" }}
+              transition={{ type: "spring", damping: 25, stiffness: 200 }}
+              className="fixed bottom-0 left-1/2 -translate-x-1/2 w-full max-w-md bg-white rounded-t-3xl shadow-2xl z-50 flex flex-col max-h-[85vh]"
+            >
+              <div className="p-4 flex justify-between items-center border-b border-slate-100 shrink-0">
+                <h3 className="font-bold text-slate-800">{isNewCategory ? "Add Category" : "Edit Category"}</h3>
+                <button onClick={() => setEditingCategory(null)} type="button" className="p-2 text-slate-400 hover:bg-slate-100 rounded-full">
+                  <X className="w-5 h-5" />
+                </button>
+              </div>
+              <div className="p-6 overflow-y-auto flex-1">
+                <form onSubmit={handleSaveCategory} className="flex flex-col gap-4">
+                  <div>
+                    <label className="block text-sm font-semibold text-slate-700 mb-1">Order</label>
+                    <input 
+                      type="number" required
+                      value={editingCategory.order ?? ''}
+                      onChange={e => setEditingCategory({...editingCategory, order: parseInt(e.target.value) || 0})}
+                      className="w-full px-4 py-2 bg-slate-50 border border-slate-200 rounded-lg focus:outline-none focus:ring-2 focus:ring-indigo-500/20 text-slate-800"
+                    />
+                  </div>
+                  <div>
+                    <label className="block text-sm font-semibold text-slate-700 mb-1">Title</label>
+                    <input 
+                      type="text" required
+                      value={editingCategory.title}
+                      onChange={e => setEditingCategory({...editingCategory, title: e.target.value})}
+                      className="w-full px-4 py-2 bg-slate-50 border border-slate-200 rounded-lg focus:outline-none focus:ring-2 focus:ring-indigo-500/20 text-slate-800"
+                    />
+                  </div>
+                  <div>
+                    <label className="block text-sm font-semibold text-slate-700 mb-1">Description</label>
+                    <input 
+                      type="text" required
+                      value={editingCategory.description}
+                      onChange={e => setEditingCategory({...editingCategory, description: e.target.value})}
+                      className="w-full px-4 py-2 bg-slate-50 border border-slate-200 rounded-lg focus:outline-none focus:ring-2 focus:ring-indigo-500/20 text-slate-800"
+                    />
+                  </div>
+                  <div>
+                    <label className="block text-sm font-semibold text-slate-700 mb-1">Color Gradient</label>
+                    <div className="grid grid-cols-4 gap-2 mt-2">
+                      {tailwindGradients.map((grad, i) => (
+                        <div 
+                          key={i} 
+                          onClick={() => setEditingCategory({...editingCategory, color: grad})}
+                          className={`h-10 rounded-lg cursor-pointer bg-gradient-to-r ${grad} ${editingCategory.color === grad ? 'ring-2 ring-slate-800 ring-offset-2' : ''}`}
+                        />
+                      ))}
+                    </div>
+                  </div>
+                  <button 
+                    type="submit" disabled={savingCategory}
+                    className="mt-6 w-full py-3 bg-indigo-600 text-white rounded-xl font-bold hover:bg-indigo-700 disabled:opacity-50 transition-colors"
+                  >
+                    {savingCategory ? <Loader2 className="w-5 h-5 animate-spin mx-auto" /> : "Save Category"}
                   </button>
                 </form>
               </div>

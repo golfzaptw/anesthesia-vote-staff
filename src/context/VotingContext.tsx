@@ -1,6 +1,8 @@
 "use client";
 
 import React, { createContext, useContext, useState, useEffect } from "react";
+import { collection, getDocs, doc, writeBatch, onSnapshot } from "firebase/firestore";
+import { db } from "@/lib/firebase";
 
 export interface Candidate {
   id: string;
@@ -12,39 +14,39 @@ export interface Candidate {
 
 export interface Category {
   id: string;
+  order: number;
   title: string;
   description: string;
-  criteria: string;
   color: string;
 }
 
-export const VOTING_CATEGORIES: Category[] = [
+const INITIAL_CATEGORIES: Category[] = [
   {
     id: "teaching",
-    title: "Teaching & Mentorship",
-    description: "ทักษะการสอนและการถ่ายทอดความรู้",
-    criteria: "ความสามารถในการอธิบายเคสที่ซับซ้อนให้เข้าใจง่าย, ความใจเย็นเมื่อนักเรียนทำหัตถการช้า, และการเปิดโอกาสให้ซักถามโดยไม่ทำให้รู้สึกกดดัน",
+    order: 1,
+    title: "1.ทักษะการสอนและการถ่ายทอดความรู้ (Teaching & Mentorship)",
+    description: "เกณฑ์ประเมิน: ความสามารถในการอธิบายเคสที่ซับซ้อนให้เข้าใจง่าย, ความใจเย็นเมื่อนักเรียนทำหัตถการช้า, และการเปิดโอกาสให้ซักถามโดยไม่ทำให้รู้สึกกดดัน",
     color: "from-blue-500 to-indigo-600"
   },
   {
     id: "clinical",
-    title: "Clinical Excellence & Safety",
-    description: "ด้านการเป็นต้นแบบความปลอดภัย",
-    criteria: "ความเป็นมืออาชีพและความละเอียดรอบคอบในการดูแลผู้ป่วย เช่น ความพิถีพิถันในการจัดท่า (Positioning) อย่างถูกต้องเพื่อป้องกันรอยกดทับ (Pressure sore) หรือ การบาดเจ็บจากการผ่าตัด การควบคุมสัญญาณชีพ การทำงานตามมาตรฐานอย่างเคร่งครัด และการเป็นกระบอกเสียงปกป้องความปลอดภัยให้คนไข้",
+    order: 2,
+    title: "2.ด้านการเป็นต้นแบบความปลอดภัย (Clinical Excellence & Safety)",
+    description: "เกณฑ์ประเมิน: ความเป็นมืออาชีพและความละเอียดรอบคอบในการดูแลผู้ป่วย เช่น ความพิถีพิถันในการจัดท่า (Positioning) อย่างถูกต้องเพื่อป้องกันรอยกดทับ (Pressure sore) หรือ การบาดเจ็บจากการผ่าตัด การควบคุมสัญญาณชีพ การทำงานตามมาตรฐานอย่างเคร่งครัด และการเป็นกระบอกเสียงปกป้องความปลอดภัยให้คนไข้",
     color: "from-emerald-400 to-teal-500"
   },
   {
     id: "safezone",
-    title: "The Safe Zone",
-    description: "ด้านความใส่ใจและสร้างบรรยากาศ: รางวัล \"เซฟโซนของน้อง\"",
-    criteria: "การเป็นที่พึ่งทางใจ สร้างบรรยากาศในห้องผ่าตัดที่ไม่กดดัน ทำให้นักเรียนรู้สึกว่ากล้าถามในสิ่งที่สงสัย กล้ารายงานปัญหาทันทีโดยไม่ต้องกลัว และคอยสังเกตความเหนื่อยล้าหรือให้กำลังใจในวันที่เจอเคสยาก",
+    order: 3,
+    title: "3.ด้านความใส่ใจและสร้างบรรยากาศ: รางวัล \"เซฟโซนของน้อง\" (The Safe Zone)",
+    description: "เกณฑ์ประเมิน: การเป็นที่พึ่งทางใจ สร้างบรรยากาศในห้องผ่าตัดที่ไม่กดดัน ทำให้นักเรียนรู้สึกว่ากล้าถามในสิ่งที่สงสัย กล้ารายงานปัญหาทันทีโดยไม่ต้องกลัว และคอยสังเกตความเหนื่อยล้าหรือให้กำลังใจในวันที่เจอเคสยาก",
     color: "from-pink-400 to-rose-500"
   },
   {
     id: "idol",
-    title: "The Inspiring Role Model",
-    description: "ด้านความทุ่มเทและทัศนคติ: รางวัล \"ไอดอลแห่งความทุ่มเท\"",
-    criteria: "แรงบรรดาลใจในการทำงาน การรับมือกับวิกฤตหรือความตึงเครียดด้วยสติและพลังบวก การประสานงานกับทีมศัลยแพทย์ได้อย่างราบรื่น และเป็นสตาฟที่นักเรียนมองแล้วรู้สึกมีไฟ อยากเติบโตไปเป็นวิสัญญีพยาบาลที่เก่งและทุ่มเทแบบนี้",
+    order: 4,
+    title: "4.ด้านความทุ่มเทและทัศนคติ: รางวัล \"ไอดอลแห่งความทุ่มเท\" (The Inspiring Role Model)",
+    description: "เกณฑ์ประเมิน: แรงบรรดาลใจในการทำงาน การรับมือกับวิกฤตหรือความตึงเครียดด้วยสติและพลังบวก การประสานงานกับทีมศัลยแพทย์ได้อย่างราบรื่น และเป็นสตาฟที่นักเรียนมองแล้วรู้สึกมีไฟ อยากเติบโตไปเป็นวิสัญญีพยาบาลที่เก่งและทุ่มเทแบบนี้",
     color: "from-amber-400 to-orange-500"
   }
 ];
@@ -55,12 +57,16 @@ export interface CategoryVote {
 }
 
 interface VotingState {
+  voterName: string;
   votes: Record<string, CategoryVote>;
   hasVoted: boolean;
+  categories: Category[];
+  loadingCategories: boolean;
 }
 
 interface VotingContextType {
   state: VotingState;
+  setVoterName: (name: string) => void;
   setVote: (categoryId: string, candidate: Candidate, reason: string) => void;
   removeVote: (categoryId: string) => void;
   submitVote: () => void;
@@ -72,8 +78,11 @@ const VotingContext = createContext<VotingContextType | undefined>(undefined);
 
 export function VotingProvider({ children }: { children: React.ReactNode }) {
   const [state, setState] = useState<VotingState>({
+    voterName: "",
     votes: {},
     hasVoted: false,
+    categories: [],
+    loadingCategories: true,
   });
 
   useEffect(() => {
@@ -88,19 +97,59 @@ export function VotingProvider({ children }: { children: React.ReactNode }) {
     if (draft) {
       try {
         const parsed = JSON.parse(draft);
-        setState((prev) => ({ ...prev, votes: parsed.votes || {} }));
+        setState((prev) => ({ 
+          ...prev, 
+          votes: parsed.votes || {},
+          voterName: parsed.voterName || ""
+        }));
       } catch (e) { }
     }
+  }, []);
+
+  useEffect(() => {
+    const categoriesRef = collection(db, "categories");
+    const unsubscribe = onSnapshot(categoriesRef, async (snapshot) => {
+      if (snapshot.empty) {
+        try {
+          const batch = writeBatch(db);
+          INITIAL_CATEGORIES.forEach(cat => {
+            batch.set(doc(categoriesRef, cat.id), cat);
+          });
+          await batch.commit();
+        } catch (err) {
+          console.error("Failed to seed categories", err);
+        }
+      } else {
+        const fetchedCategories = snapshot.docs.map(doc => ({
+          id: doc.id,
+          ...doc.data()
+        })) as Category[];
+        
+        fetchedCategories.sort((a, b) => (a.order ?? 99) - (b.order ?? 99));
+        
+        setState(prev => ({ ...prev, categories: fetchedCategories, loadingCategories: false }));
+      }
+    }, (error) => {
+      console.error("Error fetching categories:", error);
+      setState(prev => ({ ...prev, loadingCategories: false }));
+    });
+
+    return () => unsubscribe();
   }, []);
 
   useEffect(() => {
     // Save draft state
     if (!state.hasVoted) {
       sessionStorage.setItem("voteDraftV2", JSON.stringify({
+        voterName: state.voterName,
         votes: state.votes,
       }));
     }
-  }, [state.votes, state.hasVoted]);
+  }, [state.voterName, state.votes, state.hasVoted]);
+
+  const setVoterName = (name: string) => {
+    setState((prev) => ({ ...prev, voterName: name }));
+  };
 
   const setVote = (categoryId: string, candidate: Candidate, reason: string) => {
     setState((prev) => ({
@@ -127,7 +176,7 @@ export function VotingProvider({ children }: { children: React.ReactNode }) {
   };
 
   const clearState = () => {
-    setState({ votes: {}, hasVoted: false });
+    setState(prev => ({ ...prev, voterName: "", votes: {}, hasVoted: false }));
     sessionStorage.removeItem("voteDraftV2");
   };
 
@@ -136,7 +185,7 @@ export function VotingProvider({ children }: { children: React.ReactNode }) {
   }
 
   return (
-    <VotingContext.Provider value={{ state, setVote, removeVote, submitVote, clearState, setHasVoted }}>
+    <VotingContext.Provider value={{ state, setVoterName, setVote, removeVote, submitVote, clearState, setHasVoted }}>
       {children}
     </VotingContext.Provider>
   );

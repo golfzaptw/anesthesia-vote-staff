@@ -81,5 +81,10 @@ service cloud.firestore {
       allow create: if true; // ให้ทุกคนส่งโหวตได้ (Anonymous voting)
       allow read, update, delete: if isAdmin(); // เฉพาะแอดมินที่ดึงข้อมูลผลโหวตไปดูที่ Dashboard ได้
     }
+    // สำหรับ Collection: categories (หมวดหมู่รางวัล)
+    match /categories/{categoryId} {
+      allow read: if true;
+      allow write: if true; // allow for initial seeding, can change to isAdmin() later
+    }
   }
 }
